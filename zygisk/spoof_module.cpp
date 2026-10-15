@@ -4,10 +4,12 @@
 #include <json.hpp>
 #include <fstream>
 #include <android/log.h>
-#include <algorithm>
-#include <cctype>
+#include "device_info.hpp"
+#include "device_config.hpp"
 
 using json = nlohmann::json;
+using copgvd::DeviceInfo;
+using copgvd::trim;
 
 #define LOG_TAG "COPG-VD"
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__)
@@ -20,96 +22,13 @@ static const std::string config_file = "/data/adb/COPG-VD.json";
 static const std::string rom_prop_file = "/system/build.prop";
 static const std::string version_policy_file = "/data/adb/modules/COPG-VD/.spoof.version";
 
-// The Android version belongs to the ROM, not to the build being spoofed. An app told the SDK
-// is newer than the framework really is calls APIs that do not exist: Google's apps crash, the
-// device reboots, and it repeats - a softloop, which leaves nothing in the boot logs.
-//   Never = the version group is never applied (default)
-//   Rom   = only what does not exceed the ROM (in practice, lowering the SDK)
-//   Force = whatever the config says
-enum class VersionPolicy { Never, Rom, Force };
 
-struct RomVersion {
-    std::string release;
-    std::string codename;
-    int sdk = 0;
-};
 
-struct DeviceInfo {
-    std::string brand;
-    std::string device;
-    std::string manufacturer;
-    std::string model;
-    std::string fingerprint;
-    std::string product;
-    std::string android_version;
-    int version_sdk_int = 0;
-    std::string board;
-    std::string bootloader;
-    std::string hardware;
-    std::string id;
-    std::string display;
-    std::string host;
-    std::string odm_sku;
-    std::string sku;
-    std::string user;
-    int64_t time = 0;
-    std::string version_incremental;
-    std::string version_sdk;
-    int version_sdk_int_full = 0;
-    std::string version_security_patch;
-    std::string version_release_or_codename;
-    std::string version_release_or_preview_display;
-    std::string version_codename;
-};
 
-static inline std::string trim(const std::string& str) {
-    auto start = std::find_if_not(str.begin(), str.end(), [](unsigned char c) { 
-        return std::isspace(c); 
-    });
-    auto end = std::find_if_not(str.rbegin(), str.rend(), [](unsigned char c) { 
-        return std::isspace(c); 
-    }).base();
-    return (start < end) ? std::string(start, end) : std::string();
-}
 
-static RomVersion readRomVersion() {
-    RomVersion rom;
-    std::ifstream file(rom_prop_file);
-    if (!file.is_open()) return rom;                 // unknown ROM -> nothing is allowed through
-    std::string line;
-    while (std::getline(file, line)) {
-        auto take = [&line](const char* key, std::string& out) {
-            const std::string needle = std::string(key) + "=";
-            if (line.rfind(needle, 0) == 0) out = trim(line.substr(needle.size()));
-        };
-        take("ro.build.version.release", rom.release);
-        take("ro.build.version.codename", rom.codename);
-        std::string sdk;
-        take("ro.build.version.sdk", sdk);
-        if (!sdk.empty()) {
-            try { rom.sdk = std::stoi(sdk); } catch (const std::exception&) { rom.sdk = 0; }
-        }
-    }
-    return rom;
-}
 
-static VersionPolicy readVersionPolicy() {
-    std::ifstream file(version_policy_file);
-    if (!file.is_open()) return VersionPolicy::Never;
-    std::string value;
-    std::getline(file, value);
-    value = trim(value);
-    if (value == "force") return VersionPolicy::Force;
-    if (value == "rom") return VersionPolicy::Rom;
-    return VersionPolicy::Never;
-}
 
-// AOSP: RELEASE_OR_CODENAME = "REL".equals(CODENAME) ? RELEASE : CODENAME. Copying CODENAME
-// into it publishes the literal string "REL" where the version number belongs, which is a
-// combination no real device reports.
-static std::string releaseOrCodename(const std::string& codename, const std::string& release) {
-    return (codename.empty() || codename == "REL") ? release : codename;
-}
+
 
 class COPGVDModule : public zygisk::ModuleBase {
 private:
@@ -184,97 +103,8 @@ private:
         }
 
         try {
-            json config = json::parse(file);
-
-            if (config.contains(std::string(LOG_TAG)) && config[LOG_TAG].is_object()) {
-                auto device = config[LOG_TAG];
-
-                spoof_info.brand = device.value("BRAND", "");
-                spoof_info.device = device.value("DEVICE", "");
-                spoof_info.manufacturer = device.value("MANUFACTURER", "");
-                spoof_info.model = device.value("MODEL", "");
-                spoof_info.fingerprint = device.value("FINGERPRINT", "");
-                spoof_info.product = device.value("PRODUCT", "");
-                spoof_info.board = device.value("BOARD", "");
-                spoof_info.bootloader = device.value("BOOTLOADER", "");
-                spoof_info.hardware = device.value("HARDWARE", "");
-                spoof_info.id = device.value("ID", "");
-                spoof_info.display = device.value("DISPLAY", "");
-                spoof_info.host = device.value("HOST", "");
-                spoof_info.odm_sku = device.value("ODM_SKU", spoof_info.product);
-                spoof_info.sku = device.value("SKU", spoof_info.hardware);
-                spoof_info.user = device.value("USER", "");
-                spoof_info.version_incremental = device.value("INCREMENTAL", "");
-                spoof_info.version_security_patch = device.value("SECURITY_PATCH", "");
-                if (device.contains("TIMESTAMP")) {
-                    const auto& device_timestamp = device["TIMESTAMP"];
-                    spoof_info.time = std::stoll(device_timestamp.get<std::string>()) * 1000;
-                }
-
-                // --- the version group, and only what the semaphore lets through ---
-                const RomVersion rom = readRomVersion();
-                const VersionPolicy policy = readVersionPolicy();
-                auto allowed = [&rom, policy](const char* field, const std::string& value) {
-                    if (policy == VersionPolicy::Force) return true;
-                    if (policy == VersionPolicy::Never) return false;
-                    // Rom: never above the ROM. Raising the SDK is what makes apps call APIs
-                    // the framework does not have; lowering it only makes them ask for less.
-                    const std::string f(field);
-                    if (f == "SDK_INT" || f == "SDK_FULL") {
-                        if (rom.sdk == 0) return false;
-                        try { return std::stoi(value) <= rom.sdk; }
-                        catch (const std::exception&) { return false; }
-                    }
-                    if (f == "ANDROID_VERSION") return !rom.release.empty() && value == rom.release;
-                    if (f == "CODENAME") return !rom.codename.empty() && value == rom.codename;
-                    return false;
-                };
-
-                const std::string cfg_codename = device.value("CODENAME", "");
-                if (!trim(cfg_codename).empty() && allowed("CODENAME", cfg_codename)) {
-                    spoof_info.version_codename = cfg_codename;
-                }
-
-                if (device.contains("ANDROID_VERSION")) {
-                    const std::string value = device["ANDROID_VERSION"].get<std::string>();
-                    if (allowed("ANDROID_VERSION", value)) spoof_info.android_version = value;
-                }
-
-                if (device.contains("SDK_INT")) {
-                    const std::string value = device["SDK_INT"].get<std::string>();
-                    if (allowed("SDK_INT", value)) {
-                        spoof_info.version_sdk_int = std::stoi(value);
-                        spoof_info.version_sdk = std::to_string(spoof_info.version_sdk_int);
-                    }
-                }
-
-                if (device.contains("SDK_FULL")) {
-                    const std::string value = device["SDK_FULL"].get<std::string>();
-                    if (allowed("SDK_FULL", value)) {
-                        auto dot_position = value.find('.');
-                        int major = std::stoi(dot_position == std::string::npos ? value : value.substr(0, dot_position));
-                        int minor = 0;
-                        if (dot_position != std::string::npos) {
-                            minor = std::stoi(value.substr(dot_position + 1));
-                        }
-                        spoof_info.version_sdk_int_full = major * 100000 + minor;
-                    }
-                }
-                if (!spoof_info.version_sdk_int_full && spoof_info.version_sdk_int) {
-                    spoof_info.version_sdk_int_full = spoof_info.version_sdk_int * 100000;
-                }
-
-                // Derived from what actually got through, by the AOSP rule. Left empty when the
-                // version is not spoofed at all, so the framework keeps its own correct values.
-                if (!spoof_info.version_codename.empty() || !spoof_info.android_version.empty()) {
-                    const std::string cod = spoof_info.version_codename.empty()
-                                          ? rom.codename : spoof_info.version_codename;
-                    const std::string rel = spoof_info.android_version.empty()
-                                          ? rom.release : spoof_info.android_version;
-                    spoof_info.version_release_or_codename = releaseOrCodename(cod, rel);
-                    spoof_info.version_release_or_preview_display = spoof_info.version_release_or_codename;
-                }
-            }
+            const json config = json::parse(file);
+            spoof_info = copgvd::readDeviceInfo(config, LOG_TAG, rom_prop_file, version_policy_file);
         } catch (const std::exception& e) {
             ERROR_LOG("Config error: %s", e.what());
             env->DeleteLocalRef(buildClass);
@@ -300,7 +130,7 @@ private:
             if (env->ExceptionCheck()) env->ExceptionClear();
         };
 
-        auto setLong = [this](jclass thisClass, jfieldID field, int64_t value) {
+        auto setLong = [this](jclass thisClass, jfieldID field, std::int64_t value) {
             if (!field || value == 0) return;
             env->SetStaticLongField(thisClass, field, value);
             if (env->ExceptionCheck()) env->ExceptionClear();

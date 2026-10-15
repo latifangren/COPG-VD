@@ -27,6 +27,8 @@
 # Exit status: 0 when the check ran (see "status:" in the output), 1 on failure.
 
 MODDIR=${0%/*}
+. "$MODDIR/lib/atomic-file.sh" || { echo "[COPG-VD] missing atomic file helper" >&2; exit 1; }
+. "$MODDIR/lib/version-policy.sh" || { echo "[COPG-VD] missing version policy helper" >&2; exit 1; }
 MODULE_ID="COPG-VD"
 BRANCH="main"
 REMOTE_URL="https://raw.githubusercontent.com/VD171/COPG-VD/$BRANCH/module/COPG-VD.json.example"
@@ -84,7 +86,7 @@ log() {
 }
 
 cleanup() {
-    rm -f "$TMP_FILE" "$TMP_FILE.new" 2>/dev/null
+    rm -f "$TMP_FILE" "$TMP_FILE.new" "$ATOMIC_WRITE_TMP" 2>/dev/null
 }
 trap cleanup EXIT
 
@@ -151,7 +153,7 @@ json_get_raw() {
 
 # --------------------------------------------------------------------- the ROM, for real
 rom_prop() {
-    grep -m 1 "^$1=" "$ROM_PROP" 2>/dev/null | cut -d= -f2-
+    copgvd_rom_prop "$ROM_PROP" "$1"
 }
 
 # never = the version group is never applied (default) | rom = only what does not exceed the
@@ -166,12 +168,7 @@ spoof_version_policy() {
     esac
 }
 
-# AOSP: RELEASE_OR_CODENAME = "REL".equals(CODENAME) ? RELEASE : CODENAME.
-# Copying CODENAME into it - which is what the mapping used to do - publishes the literal
-# string "REL" in a field that must hold the version number. No real device reports that.
-release_or_codename() {
-    if [ "$1" = "REL" ] || [ -z "$1" ]; then echo "$2"; else echo "$1"; fi
-}
+
 
 # What the version group would actually become, given the config and the semaphore.
 # Echoes "<field> <value>" for each field that WILL be applied; silence means "none".
@@ -179,23 +176,10 @@ effective_version_fields() {
     conf="$1"
     policy=$(spoof_version_policy)
     [ "$policy" = "never" ] && return 0
-    rom_sdk=$(rom_prop ro.build.version.sdk)
     for field in $VERSION_FIELDS; do
         value=$(json_get "$conf" "$field")
         [ -n "$value" ] || continue
-        if [ "$policy" = "rom" ]; then
-            case "$field" in
-                SDK_INT)
-                    case "$value$rom_sdk" in *[!0-9]*) continue ;; esac
-                    [ "$value" -le "$rom_sdk" ] || continue ;;
-                ANDROID_VERSION)
-                    [ "$value" = "$(rom_prop ro.build.version.release)" ] || continue ;;
-                CODENAME)
-                    [ "$value" = "$(rom_prop ro.build.version.codename)" ] || continue ;;
-                SDK_FULL)
-                    case "$value" in "$rom_sdk"|"$rom_sdk".*) : ;; *) continue ;; esac ;;
-            esac
-        fi
+        copgvd_version_allowed "$policy" "$field" "$value" "$ROM_PROP" || continue
         echo "$field $value"
     done
 }
@@ -293,10 +277,10 @@ write_fields() {
     grep -q "\"$MODULE_ID\"[[:space:]]*:[[:space:]]*{" "$TMP_FILE.new" ||
         { log "refusing to write a broken file over $target"; return 1; }
 
-    cp -f "$target" "$target.bak" 2>/dev/null
-    cat "$TMP_FILE.new" > "$target" || return 1
-    chmod 0644 "$target" 2>/dev/null
-    chcon u:object_r:system_file:s0 "$target" 2>/dev/null
+    atomic_replace_file "$target" "$TMP_FILE.new" "$target.bak" || {
+        log "could not atomically replace $target"
+        return 1
+    }
     return 0
 }
 
@@ -326,10 +310,10 @@ drop_version_fields() {
     ' "$target" > "$TMP_FILE.new" || return 1
     [ -s "$TMP_FILE.new" ] || return 1
     grep -q "\"$MODULE_ID\"[[:space:]]*:[[:space:]]*{" "$TMP_FILE.new" || return 1
-    cp -f "$target" "$target.bak" 2>/dev/null
-    cat "$TMP_FILE.new" > "$target" || return 1
-    chmod 0644 "$target" 2>/dev/null
-    chcon u:object_r:system_file:s0 "$target" 2>/dev/null
+    atomic_replace_file "$target" "$TMP_FILE.new" "$target.bak" || {
+        log "could not atomically replace $target"
+        return 1
+    }
     return 0
 }
 

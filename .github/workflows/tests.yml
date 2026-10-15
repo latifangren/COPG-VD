@@ -1,0 +1,50 @@
+name: Tests
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  tests:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4.2.2
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Check WebUI JavaScript syntax
+        run: |
+          node --check module/webroot/scripts.js
+          node --check module/webroot/command-bridge.js
+          node --check module/webroot/logcat-buffer.js
+          node --check module/webroot/log-ui.js
+          node --check module/webroot/info-tabs.js
+
+      - name: Check shell syntax
+        run: |
+          sh -n module/customize.sh
+          sh -n module/service.sh
+          sh -n module/fingerprint-update.sh
+          bash -n .github/scripts/version.sh
+          sh -n module/lib/atomic-file.sh
+          sh -n module/lib/version-policy.sh
+          bash tests/atomic-file.test.sh
+          bash tests/version-policy.test.sh
+
+      - name: Run JavaScript tests
+        run: node --test tests/*.test.cjs
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Run Python tests
+        run: python -m unittest discover -s tests -p 'test_*.py' -v

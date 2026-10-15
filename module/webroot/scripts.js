@@ -1,7 +1,6 @@
 let configKeyOrder = [];
 let currentConfig = {};
 let editingDevice = null;
-let logcatRunning = false;
 
 const CONFIG_FILE = "/data/adb/COPG-VD.json";
 const MODULE_ID = 'COPG-VD';
@@ -108,124 +107,13 @@ function escapeHtml(value) {
     ));
 }
 
-async function execCommand(command) {
-    return new Promise((resolve, reject) => {
-        const callbackName = `exec_callback_${Date.now()}`;
-        window[callbackName] = (errno, stdout, stderr) => {
-            delete window[callbackName];
-            if (errno === 0) {
-                resolve(stdout || "");
-            } else {
-                reject(stderr || `Command failed with error code ${errno}`);
-            }
-        };
-        
-        if (typeof ksu !== 'undefined' && ksu.exec) {
-            ksu.exec(command, "{}", callbackName);
-        } else {
-            reject("KSU API not available");
-        }
-    });
-}
+const execCommand = createExecCommand(() => typeof ksu !== 'undefined' ? ksu : null, window);
 
-function setupInfoPopup() {
-    const versionText = document.getElementById('version-text');
-    versionText.addEventListener('click', () => {
-        showPopup('info-popup');
-        loadMarkdownContent();
-        
-        setTimeout(() => {
-            setInfoTabHeights();
-            document.querySelectorAll('.info-tab-content').forEach(tab => {
-                if (tab.id === 'info-about') {
-                    tab.scrollTop = 0;
-                } else {
-                    const markdownContainer = tab.querySelector('.markdown-container');
-                    if (markdownContainer) {
-                        markdownContainer.scrollTop = 0;
-                    }
-                }
-            });
-        }, 100);
-    });
 
-    document.querySelector('.close-info-btn').addEventListener('click', () => {
-        closePopup('info-popup');
-    });
-    
-    document.querySelectorAll('.info-tab-nav .tab-btn').forEach(btn => {
-        btn.addEventListener('click', function() {
-            const tabId = this.getAttribute('data-tab');
-            activateInfoTab(tabId);
-        });
-    });
-    
-    const infoPopup = document.getElementById('info-popup');
-    const observer = new MutationObserver((mutations) => {
-        mutations.forEach((mutation) => {
-            if (mutation.type === 'attributes' && mutation.attributeName === 'style') {
-                const displayStyle = infoPopup.style.display;
-                if (displayStyle === 'flex') {
-                    setTimeout(() => {
-                        setInfoTabHeights();
-                    }, 50);
-                }
-            }
-        });
-    });
-    observer.observe(infoPopup, { attributes: true });
-}
 
-function setInfoTabHeights() {
-    const tabContainer = document.querySelector('.info-tab-container');
-    if (!tabContainer) return;
-    
-    const containerHeight = tabContainer.clientHeight;
-    document.querySelectorAll('.info-tab-content').forEach(tab => {
-        tab.style.height = containerHeight + 'px';
-        if (tab.id === 'info-about') {
-            tab.style.overflowY = 'auto';
-            tab.style.overflowX = 'hidden';
-        } else {
-            const markdownContainer = tab.querySelector('.markdown-container');
-            if (markdownContainer) {
-                markdownContainer.style.height = '100%';
-                markdownContainer.style.overflowY = 'auto';
-                markdownContainer.style.overflowX = 'auto';
-            }
-        }
-    });
-}
 
-function activateInfoTab(tabId) {
-    document.querySelectorAll('.info-tab-content').forEach(tab => {
-        tab.classList.remove('active');
-    });
-    document.querySelectorAll('.info-tab-nav .tab-btn').forEach(btn => {
-        btn.classList.remove('active');
-    });
-    
-    const activeTab = document.getElementById(tabId);
-    const activeBtn = document.querySelector(`.info-tab-nav .tab-btn[data-tab="${tabId}"]`);
-    
-    if (activeTab && activeBtn) {
-        activeTab.classList.add('active');
-        activeBtn.classList.add('active');
-        
-        setTimeout(() => {
-            setInfoTabHeights();
-            if (tabId === 'info-about') {
-                activeTab.scrollTop = 0;
-            } else {
-                const markdownContainer = activeTab.querySelector('.markdown-container');
-                if (markdownContainer) {
-                    markdownContainer.scrollTop = 0;
-                    markdownContainer.scrollLeft = 0;
-                }
-            }
-        }, 50);
-    }
-}
+
+
 
 // marked does not sanitize HTML, and this page can run root commands: a single
 // <img src=x onerror=...> in the rendered markdown would be a root shell. The files are
@@ -615,69 +503,7 @@ function closeBackupPopup() {
     closePopup('backup-popup');
 }
 
-async function startLogcat(e) {
-    if (e) e.stopPropagation();
-    if (logcatRunning) return;
 
-    try {
-        appendToOutput(t('msg_100'), 'info');
-        logcatRunning = true;
-        document.getElementById('start-logcat').style.display = 'none';
-        document.getElementById('stop-logcat').style.display = 'inline-block';
-        document.getElementById('log-content').classList.remove('collapsed');
-        document.querySelector('#settings-log-section .toggle-icon').classList.add('expanded');
-        
-        await execCommand("su -c 'logcat -c'");
-        readLogcat();
-    } catch (error) {
-        appendToOutput(t('msg_080', {"error": error}), 'error');
-        stopLogcat();
-    }
-}
-
-async function readLogcat() {
-    if (!logcatRunning) return;
-
-    try {
-        const logs = await execCommand("su -c 'logcat -d -s COPG-VD'");
-        if (logs && logs.trim()) {
-            const lines = logs.split('\n');
-            lines.forEach(line => {
-                if (line.trim()) {
-                    let logType = 'info';
-                    if (line.includes(' E ') || line.includes('ERROR')) logType = 'error';
-                    else if (line.includes(' W ') || line.includes('WARN')) logType = 'warning';
-                    appendToOutput(line.trim(), logType);
-                }
-            });
-        }
-        
-        await execCommand("su -c 'logcat -c'");
-        if (logcatRunning) {
-            setTimeout(readLogcat, 10);
-        }
-    } catch (error) {
-        appendToOutput(t('msg_089', {"error": error}), 'error');
-        stopLogcat();
-    }
-}
-
-function stopLogcat(e) {
-    if (e) e.stopPropagation();
-    if (!logcatRunning) return;
-
-    logcatRunning = false;
-    try {
-        execCommand("su -c 'logcat -c'").catch(() => {});
-        appendToOutput(t('msg_090'), 'info');
-    } catch (error) {
-        appendToOutput(t('msg_062', {"error": error}), 'error');
-    } finally {
-        document.getElementById('start-logcat').style.display = 'inline-block';
-        document.getElementById('stop-logcat').style.display = 'none';
-        showSaveLogPopup();
-    }
-}
 
 async function showSaveLogPopup() {
     try {

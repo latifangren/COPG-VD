@@ -1,6 +1,7 @@
 #!/system/bin/sh
 
 MODDIR=${0%/*}
+. "$MODDIR/lib/version-policy.sh" || exit 1
 COPG_VD_JSON="/data/adb/COPG-VD.json"
 
 # What the ROM really is. NEVER getprop here: this script is what falsifies those props, so
@@ -14,7 +15,7 @@ VERSION_KEYS="ANDROID_VERSION SDK_INT SDK_FULL CODENAME"
 DERIVED_RELCOD="ro.build.version.release_or_codename ro.build.version.release_or_preview_display ro.odm.build.version.release_or_codename ro.odm_dlkm.build.version.release_or_codename ro.product.build.version.release_or_codename ro.system.build.version.release_or_codename ro.system_dlkm.build.version.release_or_codename ro.system_ext.build.version.release_or_codename ro.vendor.build.version.release_or_codename ro.vendor_dlkm.build.version.release_or_codename ro.bootimage.build.version.release_or_codename"
 
 rom_prop() {
-    grep -m 1 "^$1=" "$ROM_PROP" 2>/dev/null | cut -d= -f2-
+    copgvd_rom_prop "$ROM_PROP" "$1"
 }
 
 spoof_version_policy() {
@@ -26,22 +27,7 @@ spoof_version_policy() {
 # 0 = apply this version field, 1 = refuse. "rom" only lets through what does not exceed the
 # ROM, which in practice means lowering the SDK - raising it is what breaks the device.
 version_allowed() {
-    case "$POLICY_VERSION" in
-        force) return 0 ;;
-        never) return 1 ;;
-    esac
-    case "$1" in
-        SDK_INT)
-            rom=$(rom_prop ro.build.version.sdk)
-            case "$2$rom" in *[!0-9]*) return 1 ;; esac
-            [ "$2" -le "$rom" ] ;;
-        ANDROID_VERSION) [ "$2" = "$(rom_prop ro.build.version.release)" ] ;;
-        CODENAME)        [ "$2" = "$(rom_prop ro.build.version.codename)" ] ;;
-        SDK_FULL)
-            rom=$(rom_prop ro.build.version.sdk)
-            case "$2" in "$rom"|"$rom".*) return 0 ;; *) return 1 ;; esac ;;
-        *) return 1 ;;
-    esac
+    copgvd_version_allowed "$POLICY_VERSION" "$1" "$2" "$ROM_PROP"
 }
 
 # AOSP: RELEASE_OR_CODENAME = "REL".equals(CODENAME) ? RELEASE : CODENAME. The old mapping
@@ -51,7 +37,7 @@ aplicar_derivados() {
     codename="$1"; release="$2"
     [ -n "$codename" ] || codename=$(rom_prop ro.build.version.codename)
     [ -n "$release" ] || release=$(rom_prop ro.build.version.release)
-    if [ "$codename" = "REL" ] || [ -z "$codename" ]; then valor="$release"; else valor="$codename"; fi
+    valor=$(release_or_codename "$codename" "$release")
     [ -n "$valor" ] || return 0
     for prop in $DERIVED_RELCOD; do
         propreset "$prop" "$valor"

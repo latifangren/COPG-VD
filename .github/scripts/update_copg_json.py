@@ -28,6 +28,8 @@ import sys
 import time
 import urllib.request
 import zlib
+import stat
+import tempfile
 
 FLASH_HOME = "https://flash.android.com"
 FLASH_API = "https://content-flashstation-pa.googleapis.com/v1/builds"
@@ -295,11 +297,34 @@ def collect_props(factory_url):
 
 
 # --------------------------------------------------------------------------- JSON file
+def atomic_write_text(path, text):
+    directory = os.path.dirname(os.path.abspath(path))
+    fd, temporary = tempfile.mkstemp(prefix=f".{os.path.basename(path)}.", dir=directory)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as stream:
+            stream.write(text)
+            stream.flush()
+            os.fsync(stream.fileno())
+        try:
+            mode = stat.S_IMODE(os.stat(path).st_mode)
+        except FileNotFoundError:
+            mode = 0o644
+        os.chmod(temporary, mode)
+        os.replace(temporary, path)
+    except BaseException:
+        try:
+            os.unlink(temporary)
+        except OSError:
+            pass
+        raise
+
+
 def read_json(path):
     """(header pairs, COPG-VD pairs) preserving order and duplicate keys."""
     if not os.path.exists(path):
         return list(DEFAULT_HEADER), [(k, DEFAULT_STATIC.get(k, "")) for k in DEFAULT_ORDER]
-    raw = open(path, encoding="utf-8").read()
+    with open(path, encoding="utf-8") as stream:
+        raw = stream.read()
     decoder = json.JSONDecoder(object_pairs_hook=lambda pairs: pairs)
     top = decoder.decode(raw)
     body = next((v for k, v in top if k == "COPG-VD"), [])
@@ -340,7 +365,8 @@ def update_readme(path, json_text):
     """Keep the ```json block of the README in sync with the generated file."""
     if not os.path.exists(path):
         return False
-    raw = open(path, encoding="utf-8").read()
+    with open(path, encoding="utf-8") as stream:
+        raw = stream.read()
     pattern = re.compile(r"(```json\n)(.*?\"COPG-VD\".*?)(```)", re.S)
     if not pattern.search(raw):
         log("::warning::json block not found in the README; skipped")
@@ -348,7 +374,7 @@ def update_readme(path, json_text):
     new = pattern.sub(lambda m: m.group(1) + json_text + m.group(3), raw, count=1)
     if new == raw:
         return False
-    open(path, "w", encoding="utf-8").write(new)
+    atomic_write_text(path, new)
     return True
 
 
@@ -419,10 +445,14 @@ def main():
         gh_output(changed="true", build=build["name"], incremental=build["build_id"])
         return
 
-    changed = not os.path.exists(args.json) or open(args.json, encoding="utf-8").read() != text
+    current_text = None
+    if os.path.exists(args.json):
+        with open(args.json, encoding="utf-8") as stream:
+            current_text = stream.read()
+    changed = current_text != text
     if changed:
         os.makedirs(os.path.dirname(args.json) or ".", exist_ok=True)
-        open(args.json, "w", encoding="utf-8").write(text)
+        atomic_write_text(args.json, text)
         log(f"  written: {args.json}")
     readme_changed = update_readme(args.readme, text) if args.readme else False
     if readme_changed:
