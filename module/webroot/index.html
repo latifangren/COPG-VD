@@ -375,9 +375,13 @@
             <button type="button" id="preset-create" class="cancel-btn">Create editable copy</button>
         </div>
         <div class="profile-manager-actions">
+            <button type="button" id="profile-preview" class="cancel-btn">Inspect details</button>
             <button type="button" id="profile-new" class="cancel-btn">New from active profile</button>
             <button type="button" id="profile-edit" class="cancel-btn">Edit selected custom</button>
             <button type="button" id="profile-delete" class="cancel-btn">Delete selected custom</button>
+            <button type="button" id="profile-export" class="cancel-btn">Export JSON</button>
+            <button type="button" id="profile-import-btn" class="cancel-btn">Import JSON</button>
+            <input type="file" id="profile-import-input" accept=".json" style="display: none;">
         </div>
     </section>
     <div class="scroll-container">
@@ -386,6 +390,24 @@
         </div>
     </div>
 </div>
+
+    <div id="profile-preview-modal" class="modal">
+        <div class="modal-content device-form-content">
+            <div class="modal-header">
+                <h3 id="profile-preview-title">Profile Details</h3>
+                <span id="profile-preview-badge" class="optional-badge"></span>
+            </div>
+            <div id="profile-preview-body" class="scroll-container" style="max-height: 420px; overflow-y: auto;">
+                <table class="profile-preview-table">
+                    <tbody id="profile-preview-table-body"></tbody>
+                </table>
+            </div>
+            <div class="modal-actions" style="margin-top: 12px; display: flex; justify-content: flex-end; gap: 8px;">
+                <button type="button" id="profile-preview-activate" class="action-btn">Use profile</button>
+                <button type="button" id="profile-preview-close" class="cancel-btn">Close</button>
+            </div>
+        </div>
+    </div>
 
     <div id="device-modal" class="modal">
         <div class="modal-content device-form-content">

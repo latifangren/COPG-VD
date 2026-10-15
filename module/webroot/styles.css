@@ -947,9 +947,45 @@ h2 {
     text-align: center;
 }
 
-#device-modal .modal-content {
+#device-modal .modal-content,
+#profile-preview-modal .modal-content {
     max-height: 600px;
     min-height: 400px;
+}
+
+.profile-preview-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+}
+
+.profile-preview-table th,
+.profile-preview-table td {
+    padding: 8px 10px;
+    text-align: left;
+    border-bottom: 1px solid var(--border);
+    word-break: break-word;
+}
+
+.dark-theme .profile-preview-table th,
+.dark-theme .profile-preview-table td {
+    border-color: var(--dark-border);
+}
+
+.profile-preview-table th {
+    width: 32%;
+    color: var(--text-secondary);
+    font-weight: 500;
+    vertical-align: top;
+}
+
+.dark-theme .profile-preview-table th {
+    color: var(--dark-text-secondary);
+}
+
+.profile-preview-table td {
+    font-family: 'Roboto Mono', monospace;
+    font-size: 12px;
 }
 
 .device-form-content {

@@ -7,16 +7,29 @@ const store = require('../module/webroot/profile-store.js');
 const catalogPath = path.join(__dirname, '..', 'module', 'webroot', 'presets', 'catalog.json');
 const catalog = JSON.parse(fs.readFileSync(catalogPath, 'utf8'));
 
-test('bundled catalog identifies the MIT-licensed reference and has 16 complete preset identities', () => {
+test('bundled catalog identifies the MIT-licensed reference and has 19 complete preset identities aligned with fingerprints', () => {
   assert.match(catalog.sourceLicense, /MIT/);
   assert.match(fs.readFileSync(path.join(path.dirname(catalogPath), 'NOTICE'), 'utf8'), /OpenSpoof contributors/);
   const ids = catalog.presets.map((preset) => preset.id);
-  assert.equal(ids.length, 16);
+  assert.equal(ids.length, 19);
   assert.equal(new Set(ids).size, ids.length);
   for (const preset of catalog.presets) {
     assert.ok(preset.name);
+    assert.ok(preset.category, `${preset.id} missing category`);
     for (const field of ['BRAND', 'DEVICE', 'MANUFACTURER', 'MODEL', 'PRODUCT', 'FINGERPRINT']) {
       assert.equal(typeof preset.values[field], 'string', `${preset.id}:${field}`);
+    }
+    const fpMatch = preset.values.FINGERPRINT.match(/^([^/]+)\/([^/]+)\/([^:]+):([^/]+)\/([^/]+)\/([^:]+):([^/]+)\/(.+)$/);
+    assert.ok(fpMatch, `${preset.id}: FINGERPRINT invalid format (${preset.values.FINGERPRINT})`);
+    const [, fpBrand, fpProduct, fpDevice, , fpId, fpIncr] = fpMatch;
+    assert.equal(preset.values.BRAND, fpBrand, `${preset.id}: BRAND does not match FINGERPRINT`);
+    assert.equal(preset.values.PRODUCT, fpProduct, `${preset.id}: PRODUCT does not match FINGERPRINT`);
+    assert.equal(preset.values.DEVICE, fpDevice, `${preset.id}: DEVICE does not match FINGERPRINT`);
+    if (preset.values.ID) {
+      assert.equal(preset.values.ID, fpId, `${preset.id}: ID does not match FINGERPRINT`);
+    }
+    if (preset.values.INCREMENTAL) {
+      assert.equal(preset.values.INCREMENTAL, fpIncr, `${preset.id}: INCREMENTAL does not match FINGERPRINT`);
     }
   }
 });
@@ -89,4 +102,45 @@ test('custom profile names receive collision-safe ids and preserve unknown profi
   assert.equal(first, 'custom:my-device');
   assert.equal(second, 'custom:my-device-2');
   assert.equal(config.customNote, 'preserve');
+});
+
+test('automatically derives ID, INCREMENTAL, TYPE, TAGS, and DISPLAY from FINGERPRINT when missing', () => {
+  const minimal = {
+    FINGERPRINT: 'google/marlin/marlin:10/QP1A.191005.007.A3/5972272:user/release-keys',
+    MODEL: 'Pixel XL',
+  };
+  const { config, activeId } = store.normalizeConfig({ 'COPG-VD': minimal });
+  const values = config[store.PROFILES_KEY][activeId].values;
+  assert.equal(values.BRAND, 'google');
+  assert.equal(values.PRODUCT, 'marlin');
+  assert.equal(values.DEVICE, 'marlin');
+  assert.equal(values.ID, 'QP1A.191005.007.A3');
+  assert.equal(values.INCREMENTAL, '5972272');
+  assert.equal(values.TYPE, 'user');
+  assert.equal(values.TAGS, 'release-keys');
+  assert.equal(values.DISPLAY, 'QP1A.191005.007.A3');
+});
+
+test('exports and imports standalone profile configurations correctly', () => {
+  const { config } = store.normalizeConfig({ 'COPG-VD': { DEVICE: 'test-device', BRAND: 'test-brand' } });
+  const exported = store.exportProfile(config, 'builtin:pixel_xl_2016', catalog);
+  assert.equal(exported.kind, 'COPG-VD-Profile');
+  assert.equal(exported.name, 'Pixel XL (Google Photos Unlimited Original)');
+  assert.equal(exported.values.DEVICE, 'marlin');
+
+  const importedId = store.importProfile(config, exported, { name: 'My Imported Pixel' });
+  assert.equal(importedId, 'custom:my-imported-pixel');
+  assert.equal(config[store.PROFILES_KEY][importedId].values.DEVICE, 'marlin');
+  assert.equal(config[store.PROFILES_KEY][importedId].name, 'My Imported Pixel');
+
+  // Import from raw JSON string with activation
+  const rawJson = JSON.stringify({ BRAND: 'google', MODEL: 'Pixel 5', FINGERPRINT: 'google/redfin/redfin:14/UP1A.231105.001.B2/11260436:user/release-keys' });
+  const rawId = store.importProfile(config, rawJson, { activate: true });
+  assert.equal(config[store.ACTIVE_KEY], rawId);
+  assert.equal(config['COPG-VD'].MODEL, 'Pixel 5');
+  assert.equal(config['COPG-VD'].DEVICE, 'redfin');
+
+  // Rejects invalid payload
+  assert.throws(() => store.importProfile(config, 'not a json'), /Invalid JSON format/);
+  assert.throws(() => store.importProfile(config, { empty: true }), /does not contain valid device properties/);
 });

@@ -1,4 +1,4 @@
-The built-in device preset data in catalog.json was adapted from OpenSpoof v0.2.0, module/devices.conf.
+The built-in device preset data in catalog.json was adapted from OpenSpoof v0.2.0, module/devices.conf, with additional factory image reference entries for Google Pixel devices.
 
 Copyright (c) 2026 OpenSpoof contributors
 

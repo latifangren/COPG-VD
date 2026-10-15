@@ -9,6 +9,24 @@
     const isObject = value => value !== null && typeof value === 'object' && !Array.isArray(value);
     const clone = value => JSON.parse(JSON.stringify(value));
 
+    function fillDerivedFields(clean) {
+        if (typeof clean.FINGERPRINT === 'string') {
+            const match = clean.FINGERPRINT.match(/^([^/]+)\/([^/]+)\/([^:]+):([^/]+)\/([^/]+)\/([^:]+):([^/]+)\/(.+)$/);
+            if (match) {
+                const [, fpBrand, fpProduct, fpDevice, , fpId, fpIncr, fpType, fpTags] = match;
+                if (!clean.BRAND && fpBrand) clean.BRAND = fpBrand;
+                if (!clean.PRODUCT && fpProduct) clean.PRODUCT = fpProduct;
+                if (!clean.DEVICE && fpDevice) clean.DEVICE = fpDevice;
+                if (!clean.ID && fpId) clean.ID = fpId;
+                if (!clean.INCREMENTAL && fpIncr) clean.INCREMENTAL = fpIncr;
+                if (!clean.TYPE && fpType) clean.TYPE = fpType;
+                if (!clean.TAGS && fpTags) clean.TAGS = fpTags;
+                if (!clean.DISPLAY && clean.ID) clean.DISPLAY = clean.ID;
+            }
+        }
+        return clean;
+    }
+
     function cleanValues(values) {
         if (!isObject(values)) throw new TypeError('Profile values must be an object');
         const clean = {};
@@ -18,7 +36,7 @@
                 clean[key] = value;
             }
         });
-        return clean;
+        return fillDerivedFields(clean);
     }
     function normalizeConfig(input) {
         if (!isObject(input)) throw new TypeError('Config must be a JSON object');
@@ -63,11 +81,19 @@
         const builtins = Array.isArray(catalog?.presets) ? catalog.presets : [];
         const custom = isObject(config?.[PROFILES_KEY]) ? config[PROFILES_KEY] : {};
         return [
-            ...builtins.map(profile => ({ id: `builtin:${profile.id}`, name: profile.name, kind: 'builtin', platform: profile.platform || '', values: profile.values })),
+            ...builtins.map(profile => ({
+                id: `builtin:${profile.id}`,
+                name: profile.name,
+                kind: 'builtin',
+                category: profile.category || 'General',
+                platform: profile.platform || '',
+                values: profile.values
+            })),
             ...Object.entries(custom).filter(([, profile]) => isObject(profile) && isObject(profile.values)).map(([id, profile]) => ({
                 id,
                 name: profile.name || id,
                 kind: 'custom',
+                category: 'Custom profiles',
                 platform: 'Custom profile',
                 values: profile.values
             }))
@@ -113,7 +139,55 @@
         return config;
     }
 
-    const api = { ACTIVE_KEY, PROFILES_KEY, ACTIVE_DATA_KEY, normalizeConfig, listProfiles, activate, createCustom, removeCustom };
+    function exportProfile(config, profileId, catalog) {
+        const profile = listProfiles(config, catalog).find(item => item.id === profileId);
+        if (!profile) throw new Error(`Unknown profile: ${profileId}`);
+        return {
+            schemaVersion: 1,
+            kind: 'COPG-VD-Profile',
+            name: profile.name,
+            platform: profile.platform || '',
+            category: profile.category || 'Custom profiles',
+            values: clone(profile.values)
+        };
+    }
+
+    function importProfile(config, payload, options = {}) {
+        let data = payload;
+        if (typeof data === 'string') {
+            try {
+                data = JSON.parse(data);
+            } catch (e) {
+                throw new Error('Invalid JSON format for profile import');
+            }
+        }
+        if (!isObject(data)) throw new TypeError('Import payload must be a JSON object');
+
+        let values = null;
+        let name = '';
+
+        if (isObject(data.values)) {
+            values = data.values;
+            name = data.name;
+        } else if (isObject(data[ACTIVE_DATA_KEY])) {
+            values = data[ACTIVE_DATA_KEY];
+            name = data.Instructions || values.MODEL || values.DEVICE || 'Imported Config';
+        } else {
+            values = data;
+            name = data.MODEL || data.DEVICE || 'Imported Profile';
+        }
+
+        const cleaned = cleanValues(values);
+        if (Object.keys(cleaned).length === 0) {
+            throw new Error('Imported profile does not contain valid device properties');
+        }
+
+        const profileName = String(options.name || name || cleaned.MODEL || cleaned.DEVICE || 'Imported Profile').trim();
+        const activateAfterImport = Boolean(options.activate);
+        return createCustom(config, profileName, cleaned, undefined, activateAfterImport);
+    }
+
+    const api = { ACTIVE_KEY, PROFILES_KEY, ACTIVE_DATA_KEY, fillDerivedFields, normalizeConfig, listProfiles, activate, createCustom, removeCustom, exportProfile, importProfile };
     if (typeof module !== 'undefined' && module.exports) module.exports = api;
     if (root) root.COPGVDProfiles = api;
 })(typeof globalThis !== 'undefined' ? globalThis : this);
