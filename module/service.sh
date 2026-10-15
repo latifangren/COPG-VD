@@ -2,6 +2,7 @@
 
 MODDIR=${0%/*}
 . "$MODDIR/lib/version-policy.sh" || exit 1
+. "$MODDIR/lib/config-json.sh" || exit 1
 COPG_VD_JSON="/data/adb/COPG-VD.json"
 
 # What the ROM really is. NEVER getprop here: this script is what falsifies those props, so
@@ -107,7 +108,7 @@ apply_props() {
       [ -z "$json_key" ] && continue
       # head -n1: with more than one object in the file this used to return several lines and
       # feed a multi-line value straight into resetprop.
-      json_value=$(echo "$json_content" | grep -o "\"$json_key\"[[:space:]]*:[[:space:]]*\"[^\"]*\"" | head -n 1 | sed 's/.*:[[:space:]]*"\(.*\)"/\1/')
+      json_value=$(copgvd_json_active_value "$COPG_VD_JSON" "$json_key")
       case " $VERSION_KEYS " in
         *" $json_key "*)
             if [ -n "$json_value" ] && ! version_allowed "$json_key" "$json_value"; then
@@ -155,8 +156,8 @@ apply_props() {
     done
 
     # Computed once, from whatever ended up effective - not copied from CODENAME.
-    cod=$(echo "$json_content" | grep -o "\"CODENAME\"[[:space:]]*:[[:space:]]*\"[^\"]*\"" | head -n 1 | sed 's/.*:[[:space:]]*"\(.*\)"/\1/')
-    rel=$(echo "$json_content" | grep -o "\"ANDROID_VERSION\"[[:space:]]*:[[:space:]]*\"[^\"]*\"" | head -n 1 | sed 's/.*:[[:space:]]*"\(.*\)"/\1/')
+    cod=$(copgvd_json_active_value "$COPG_VD_JSON" CODENAME)
+    rel=$(copgvd_json_active_value "$COPG_VD_JSON" ANDROID_VERSION)
     version_allowed CODENAME "$cod" || cod=""
     version_allowed ANDROID_VERSION "$rel" || rel=""
     aplicar_derivados "$cod" "$rel"

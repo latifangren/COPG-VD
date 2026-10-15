@@ -319,24 +319,45 @@ def atomic_write_text(path, text):
         raise
 
 
+class JsonObject(list):
+    """Ordered JSON object pairs, preserving duplicate keys at every level."""
+
+
+def render_json_value(value, indent=0):
+    pad = " " * indent
+    child_pad = " " * (indent + 2)
+    if isinstance(value, JsonObject):
+        if not value:
+            return "{}"
+        rows = [f"{child_pad}{json.dumps(key, ensure_ascii=False)}: {render_json_value(item, indent + 2)}"
+                for key, item in value]
+        return "{\n" + ",\n".join(rows) + f"\n{pad}}}"
+    if isinstance(value, list):
+        if not value:
+            return "[]"
+        rows = [f"{child_pad}{render_json_value(item, indent + 2)}" for item in value]
+        return "[\n" + ",\n".join(rows) + f"\n{pad}]"
+    return json.dumps(value, ensure_ascii=False)
+
+
 def read_json(path):
-    """(header pairs, COPG-VD pairs) preserving order and duplicate keys."""
+    """(header pairs, COPG-VD pairs) preserving nested values and duplicate keys."""
     if not os.path.exists(path):
         return list(DEFAULT_HEADER), [(k, DEFAULT_STATIC.get(k, "")) for k in DEFAULT_ORDER]
     with open(path, encoding="utf-8") as stream:
         raw = stream.read()
-    decoder = json.JSONDecoder(object_pairs_hook=lambda pairs: pairs)
+    decoder = json.JSONDecoder(object_pairs_hook=JsonObject)
     top = decoder.decode(raw)
-    body = next((v for k, v in top if k == "COPG-VD"), [])
+    body = next((v for k, v in top if k == "COPG-VD"), JsonObject())
     header = [(k, v) for k, v in top if k != "COPG-VD"]
     return header, list(body)
 
 
 def render_json(header, body):
     lines = ["{"]
-    lines += [f"  {json.dumps(k)}: {json.dumps(v, ensure_ascii=False)}," for k, v in header]
+    lines += [f"  {json.dumps(k, ensure_ascii=False)}: {render_json_value(v, 2)}," for k, v in header]
     lines.append('  "COPG-VD": {')
-    lines += [f"    {json.dumps(k)}: {json.dumps(v, ensure_ascii=False)},"
+    lines += [f"    {json.dumps(k, ensure_ascii=False)}: {render_json_value(v, 4)},"
               for k, v in body]
     lines[-1] = lines[-1].rstrip(",")
     lines += ["  }", "}", ""]

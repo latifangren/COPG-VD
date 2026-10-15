@@ -137,7 +137,11 @@ jobs:
       - name: Package module
         run: |
           cd module && zip -r9 "../${{ steps.version.outputs.zip_name }}" . -x '.git*'
-          cd .. && unzip -l "${{ steps.version.outputs.zip_name }}" | tail -n 1
+          cd ..
+          unzip -t "${{ steps.version.outputs.zip_name }}"
+          for asset in webroot/presets/catalog.json webroot/presets/NOTICE webroot/profile-store.js webroot/profile-ui.js; do
+            unzip -Z1 "${{ steps.version.outputs.zip_name }}" | grep -Fx "$asset"
+          done
 
       - name: Commit the bump
         if: steps.version.outputs.bumped == 'true'

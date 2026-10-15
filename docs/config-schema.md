@@ -27,4 +27,8 @@ Example:
 - `ANDROID_VERSION`, `SDK_INT`, `SDK_FULL`, and `CODENAME` describe the ROM and are gated by the configured version policy. Do not assume a build profile overrides them.
 - `module/COPG-VD.json.example` can contain provenance/header metadata in addition to the device object; preserve it when editing generated profile content.
 
+## Profiles
+
+The runtime continues to read the active profile from `COPG-VD`. The WebUI stores named user profiles under `COPG-VD-Profiles` and the selected ID under `COPG-VD-ActiveProfile`. Built-in presets live in `module/webroot/presets/catalog.json` and are copied into a custom profile before editing. Opening a legacy config without profile metadata imports its current `COPG-VD` object as a custom profile. Settings and unknown top-level keys are preserved.
+
 This document describes the current contract. It is not yet a machine-enforced JSON Schema. Phase 2 of `PLAN.md` covers field-by-field parity and automated validation.

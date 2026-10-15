@@ -63,6 +63,8 @@ The block above and `module/COPG-VD.json.example` are refreshed daily by the [Up
 **Analyze** in the WebUI (or `fingerprint-update.sh analyze`) audits the config as it stands: version against the ROM, whether the file still parses at all (a broken one makes the module spoof **nothing**, and only logcat says so), whether the fingerprint agrees with the fields around it, keys the module does not read, dates, and whether the props already carry what the config asks for.  
 ### Settings in the config  
 `COPG-VD.json` can carry a `COPG-VD-Settings` object - `resetprop`, `autoupdate`, `spoof_manufacturer`, `spoof_version` - so your choices travel with a backup and can be edited by hand. The WebUI writes both that and the flag files the boot scripts read. `"spoof_version": "force"` is refused from the file and downgraded: restoring an old backup must not re-arm it behind your back.  
+### Device profiles
+The WebUI includes 16 offline device presets. Select one as the active global profile, or make editable user copies, save multiple custom profiles, and switch between them. Existing `COPG-VD.json` configs are migrated on first WebUI load; the runtime continues reading the active profile from the `COPG-VD` object. Catalog attribution and format are documented in [docs/device-profiles.md](docs/device-profiles.md).
 ### WebUI  
 Using the WebUI is unnecessary if you edit the JSON config file directly.  
 If you are a Magisk user, use KsuWebUI by KOW (https://github.com/KOWX712/KsuWebUIStandalone/releases).  

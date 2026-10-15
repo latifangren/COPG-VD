@@ -66,6 +66,9 @@ jobs:
           chmod 755 module/customize.sh module/service.sh module/fingerprint-update.sh module/META-INF/com/google/android/update-binary
           (cd module && zip -qr9 "../$zip_name" . -x '.git*')
           unzip -t "$zip_name"
+          for asset in webroot/presets/catalog.json webroot/presets/NOTICE webroot/profile-store.js webroot/profile-ui.js; do
+            unzip -Z1 "$zip_name" | grep -Fx "$asset"
+          done
           for abi in arm64-v8a armeabi-v7a x86_64; do
             unzip -Z1 "$zip_name" | grep -Fx "zygisk/$abi.so"
           done

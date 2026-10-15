@@ -25,6 +25,8 @@ jobs:
           node --check module/webroot/command-bridge.js
           node --check module/webroot/logcat-buffer.js
           node --check module/webroot/log-ui.js
+          node --check module/webroot/profile-store.js
+          node --check module/webroot/profile-ui.js
           node --check module/webroot/info-tabs.js
 
       - name: Check shell syntax
@@ -35,8 +37,10 @@ jobs:
           bash -n .github/scripts/version.sh
           sh -n module/lib/atomic-file.sh
           sh -n module/lib/version-policy.sh
+          sh -n module/lib/config-json.sh
           bash tests/atomic-file.test.sh
           bash tests/version-policy.test.sh
+          bash tests/active-config.test.sh
 
       - name: Run JavaScript tests
         run: node --test tests/*.test.cjs

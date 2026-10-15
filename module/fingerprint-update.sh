@@ -29,6 +29,7 @@
 MODDIR=${0%/*}
 . "$MODDIR/lib/atomic-file.sh" || { echo "[COPG-VD] missing atomic file helper" >&2; exit 1; }
 . "$MODDIR/lib/version-policy.sh" || { echo "[COPG-VD] missing version policy helper" >&2; exit 1; }
+. "$MODDIR/lib/config-json.sh" || { echo "[COPG-VD] missing config parser helper" >&2; exit 1; }
 MODULE_ID="COPG-VD"
 BRANCH="main"
 REMOTE_URL="https://raw.githubusercontent.com/VD171/COPG-VD/$BRANCH/module/COPG-VD.json.example"
@@ -118,8 +119,7 @@ download() {
 # --------------------------------------------------------------------- json helpers
 # Same grep/sed style the module already uses in service.sh: one key per line, strings only.
 json_get() {
-    grep -o "\"$2\"[[:space:]]*:[[:space:]]*\"[^\"]*\"" "$1" 2>/dev/null | head -n 1 |
-        sed "s/^\"[^\"]*\"[[:space:]]*:[[:space:]]*\"//; s/\"$//"
+    copgvd_json_active_value "$1" "$2"
 }
 
 # Values land in props and in sed/awk, so anything outside this alphabet is refused.

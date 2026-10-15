@@ -24,9 +24,18 @@ App specialization
     └─ applies selected android.os.Build and Build.VERSION fields through JNI
 
 WebUI
-  module/webroot/index.html + command-bridge.js + logcat-buffer.js + log-ui.js + info-tabs.js + scripts.js
-    └─ invokes root commands through the KSU JavaScript bridge
-       and edits the shared config and module settings
+  module/webroot/index.html + command-bridge.js + profile-store.js + profile-ui.js
+    ├─ provides an offline built-in device catalog and user-saved editable copies
+    └─ writes the selected profile to COPG-VD for the existing runtime readers
+
+  logcat-buffer.js + log-ui.js + info-tabs.js + scripts.js
+    └─ implement logging, info tabs, and remaining WebUI behavior
+
+Profile data
+  module/webroot/presets/catalog.json + /data/adb/COPG-VD.json
+    ├─ keeps the bundled catalog read-only and local/offline
+    ├─ stores user copies under COPG-VD-Profiles
+    └─ writes the selected identity to COPG-VD for shell and Zygisk compatibility
 
 Maintainer update
   .github/scripts/update_copg_json.py

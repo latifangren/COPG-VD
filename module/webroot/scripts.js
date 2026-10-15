@@ -1,6 +1,9 @@
 let configKeyOrder = [];
 let currentConfig = {};
 let editingDevice = null;
+let editingProfileId = null;
+let configSaveQueue = Promise.resolve();
+let configSaveSequence = 0;
 
 const CONFIG_FILE = "/data/adb/COPG-VD.json";
 const MODULE_ID = 'COPG-VD';
@@ -608,13 +611,22 @@ async function loadConfig() {
     try {
         const configContent = await execCommand(`cat ${shq(CONFIG_FILE)}`);
         const parsedConfig = JSON.parse(configContent);
-        currentConfig = parsedConfig;
-        configKeyOrder = Object.keys(parsedConfig);
+        const normalized = COPGVDProfiles.normalizeConfig(parsedConfig);
+        currentConfig = normalized.config;
+        configKeyOrder = Object.keys(currentConfig);
+        if (normalized.migrated) {
+            try {
+                await saveConfig();
+            } catch (saveError) {
+                appendToOutput(`Profile migration is loaded but could not be saved: ${saveError.message}`, 'error');
+            }
+        }
         appendToOutput(t('msg_054'), 'success');
     } catch (error) {
         appendToOutput(t('msg_070') + error, 'error');
-        currentConfig = {};
-        configKeyOrder = [];
+        const normalized = COPGVDProfiles.normalizeConfig({});
+        currentConfig = normalized.config;
+        configKeyOrder = Object.keys(currentConfig);
     }
 }
 
@@ -728,7 +740,11 @@ function openDeviceModal(deviceKey = null) {
     if (deviceKey) {
         title.textContent = 'Edit Device Profile';
         editingDevice = deviceKey;
-        const deviceData = currentConfig[deviceKey];
+        const activeId = currentConfig[COPGVDProfiles.ACTIVE_KEY];
+        editingProfileId = deviceKey.startsWith('custom:') ? deviceKey : (activeId && activeId.startsWith('custom:') ? activeId : null);
+        const savedProfile = editingProfileId ? currentConfig[COPGVDProfiles.PROFILES_KEY]?.[editingProfileId] : null;
+        const deviceData = savedProfile?.values || currentConfig[deviceKey];
+        document.getElementById('profile-name').value = savedProfile?.name || deviceData.MODEL || deviceData.DEVICE || '';
         document.getElementById('device-name').value = deviceData.DEVICE || '';
         document.getElementById('device-brand').value = deviceData.BRAND || '';
         document.getElementById('device-model').value = deviceData.MODEL || '';
@@ -753,9 +769,11 @@ function openDeviceModal(deviceKey = null) {
         document.getElementById('device-sdk_fingerprint').value = deviceData.SDK_FINGERPRINT || '';
         setupAndroidSdkLink();
     } else {
-        title.textContent = 'Add New Device Profile';
+        title.textContent = 'Create Device Profile';
         editingDevice = null;
+        editingProfileId = null;
         form.reset();
+        document.getElementById('profile-name').value = '';
         setupAndroidSdkLink();
     }
     
@@ -863,28 +881,7 @@ async function saveDevice(e) {
     e.preventDefault();
     
     const form = document.getElementById('device-form');
-    const requiredFieldIds = [
-        'device-name',
-        'device-brand',
-        'device-model',
-        'device-product',
-        'device-manufacturer',
-        'device-fingerprint',
-        'device-board',
-        'device-bootloader',
-        'device-hardware',
-        'device-id',
-        'device-display',
-        'device-host',
-        'device-incremental',
-        'device-timestamp',
-        'device-security_patch',
-        'device-preview_sdk',
-        'device-sdk_full',
-        'device-codename',
-        'device-user',
-        'device-sdk_fingerprint'
-    ];
+    const requiredFieldIds = [];
     let hasError = false;
     const missingFields = [];
     
@@ -923,69 +920,37 @@ async function saveDevice(e) {
     }
     
     const deviceName = document.getElementById('device-name').value.trim();
-    const brand = document.getElementById('device-brand').value.trim() || 'Undefined';
-    const model = document.getElementById('device-model').value.trim() || 'Undefined';
-    const product = document.getElementById('device-product').value.trim() || 'Undefined';
-    const board = document.getElementById('device-board').value.trim() || 'Undefined';
-    const bootloader = document.getElementById('device-bootloader').value.trim() || 'Undefined';
-    const hardware = document.getElementById('device-hardware').value.trim() || 'Undefined';
-    const id = document.getElementById('device-id').value.trim() || 'Undefined';
-    const display = document.getElementById('device-display').value.trim() || 'Undefined';
-    const host = document.getElementById('device-host').value.trim() || 'Undefined';
-    const manufacturer = document.getElementById('device-manufacturer').value.trim() || 'Undefined';
-    const fingerprint = document.getElementById('device-fingerprint').value.trim() || 'Undefined';
-    const incremental = document.getElementById('device-incremental').value.trim() || 'Undefined';
-    const timestamp = document.getElementById('device-timestamp').value.trim() || 'Undefined';
-    const security_patch = document.getElementById('device-security_patch').value.trim() || 'Undefined';
-    const androidVersion = document.getElementById('device-android-version').value.trim();
-    const sdkInt = document.getElementById('device-sdk-int').value.trim();
-    const preview_sdk = document.getElementById('device-preview_sdk').value.trim() || 'Undefined';
-    const sdk_full = document.getElementById('device-sdk_full').value.trim() || 'Undefined';
-    const codename = document.getElementById('device-codename').value.trim() || 'Undefined';
-    const user = document.getElementById('device-user').value.trim() || 'Undefined';
-    const sdk_fingerprint = document.getElementById('device-sdk_fingerprint').value.trim() || 'Undefined';
-    
-    const deviceData = {
-        BRAND: brand,
-        DEVICE: deviceName,
-        MANUFACTURER: manufacturer,
-        MODEL: model,
-        FINGERPRINT: fingerprint,
-        PRODUCT: product,
-        BOARD: board,
-        BOOTLOADER: bootloader,
-        HARDWARE: hardware,
-        ID: id,
-        DISPLAY: display,
-        HOST: host,
-        INCREMENTAL: incremental,
-        TIMESTAMP: timestamp,
-        SECURITY_PATCH: security_patch,
-        PREVIEW_SDK: preview_sdk,
-        SDK_FULL: sdk_full,
-        CODENAME: codename,
-        USER: user,
-        SDK_FINGERPRINT: sdk_fingerprint
+    const fieldMap = {
+        DEVICE: 'device-name', BRAND: 'device-brand', MODEL: 'device-model', PRODUCT: 'device-product',
+        MANUFACTURER: 'device-manufacturer', FINGERPRINT: 'device-fingerprint', BOARD: 'device-board',
+        BOOTLOADER: 'device-bootloader', HARDWARE: 'device-hardware', ID: 'device-id', DISPLAY: 'device-display',
+        HOST: 'device-host', ANDROID_VERSION: 'device-android-version', SDK_INT: 'device-sdk-int',
+        INCREMENTAL: 'device-incremental', TIMESTAMP: 'device-timestamp', SECURITY_PATCH: 'device-security_patch',
+        PREVIEW_SDK: 'device-preview_sdk', SDK_FULL: 'device-sdk_full', CODENAME: 'device-codename',
+        USER: 'device-user', SDK_FINGERPRINT: 'device-sdk_fingerprint'
     };
-    
-    if (androidVersion) {
-        deviceData.ANDROID_VERSION = androidVersion;
-    }
-    
-    if (sdkInt) {
-        deviceData.SDK_INT = sdkInt;
-    }
+    const base = editingProfileId ? currentConfig[COPGVDProfiles.PROFILES_KEY]?.[editingProfileId]?.values : currentConfig['COPG-VD'];
+    const deviceData = { ...(base || {}) };
+    Object.entries(fieldMap).forEach(([key, id]) => {
+        const value = document.getElementById(id).value.trim();
+        if (value) deviceData[key] = value;
+        else delete deviceData[key];
+    });
+    const profileName = document.getElementById('profile-name').value.trim() || deviceName || deviceData.MODEL || 'Custom device';
     
     try {
-        const deviceKey = 'COPG-VD';
-        currentConfig[deviceKey] = deviceData;
-        
-        if (!configKeyOrder.includes(deviceKey)) {
-            configKeyOrder.push(deviceKey);
+        if (editingProfileId) {
+            const shouldActivate = currentConfig[COPGVDProfiles.ACTIVE_KEY] === editingProfileId;
+            COPGVDProfiles.createCustom(currentConfig, profileName, deviceData, editingProfileId, shouldActivate);
+            selectedProfileId = editingProfileId;
+        } else {
+            const shouldActivate = !editingDevice || editingDevice === 'COPG-VD';
+            editingProfileId = COPGVDProfiles.createCustom(currentConfig, profileName, deviceData, undefined, shouldActivate);
+            selectedProfileId = editingProfileId;
         }
-        
         await saveConfig();
         closeModal('device-modal');
+        renderProfileManager();
         renderDeviceList();
         appendToOutput(
             t('msg_056', {"deviceName": deviceName}),
@@ -1012,11 +977,16 @@ async function saveConfig() {
             }
         }
         const configStr = JSON.stringify(orderedConfig, null, 2);
+        const tempConfig = `${CONFIG_FILE}.tmp.${++configSaveSequence}`;
+        const writeConfig = () => execCommand(`printf '%s' ${shq(configStr)} > ${shq(tempConfig)} && chmod 644 ${shq(tempConfig)} && (chcon u:object_r:system_file:s0 ${shq(tempConfig)} 2>/dev/null || true) && mv -f ${shq(tempConfig)} ${shq(CONFIG_FILE)}`);
+        const saveAttempt = configSaveQueue.then(writeConfig, writeConfig);
+        configSaveQueue = saveAttempt.then(() => undefined, () => undefined);
+        await saveAttempt;
         
-        await execCommand(`echo ${shq(configStr)} > ${shq(CONFIG_FILE)}`);
-        await execCommand(`chmod 644 ${shq(CONFIG_FILE)}`);
 
-        await execCommand(`kill -9 $(pidof com.android.vending com.google.android.gsf com.google.android.gms) 2>/dev/null`);
+
+
+
         
         try {
             await execCommand(`chcon u:object_r:system_file:s0 ${shq(CONFIG_FILE)}`);
@@ -1429,6 +1399,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     await loadVersion();
     await loadToggleStates();
     await loadConfig();
+    await setupProfileManager();
+    renderDeviceList();
     applyEventListeners();
     switchTab('settings');
 });

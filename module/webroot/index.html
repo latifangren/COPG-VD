@@ -350,6 +350,36 @@
             </div>
 
             <div id="devices-tab" class="tab-content">
+    <section class="profile-manager" aria-labelledby="profile-manager-title">
+        <div class="profile-manager-heading">
+            <div>
+                <h2 id="profile-manager-title">Device profiles</h2>
+                <p id="active-profile-summary">Select a built-in preset or one of your saved profiles.</p>
+            </div>
+            <span id="profile-count" class="profile-count"></span>
+        </div>
+        <div class="profile-manager-grid">
+            <label>Choose profile
+                <select id="profile-select"></select>
+            </label>
+            <button type="button" id="profile-activate" class="action-btn">Use profile</button>
+            <button type="button" id="profile-customize" class="cancel-btn">Customize copy</button>
+        </div>
+        <div class="profile-manager-grid profile-create-row">
+            <label>Built-in presets
+                <select id="preset-select"></select>
+            </label>
+            <label>Save copy as
+                <input id="preset-copy-name" type="text" maxlength="64" placeholder="My device profile">
+            </label>
+            <button type="button" id="preset-create" class="cancel-btn">Create editable copy</button>
+        </div>
+        <div class="profile-manager-actions">
+            <button type="button" id="profile-new" class="cancel-btn">New from active profile</button>
+            <button type="button" id="profile-edit" class="cancel-btn">Edit selected custom</button>
+            <button type="button" id="profile-delete" class="cancel-btn">Delete selected custom</button>
+        </div>
+    </section>
     <div class="scroll-container">
         <div class="list-wrapper">
             <div id="device-list" class="device-list"></div>
@@ -363,6 +393,8 @@
                 <h3 id="device-modal-title" data-i18n="ui_002">Add New Device Profile</h3>
             </div>
             <form id="device-form">
+                <label class="profile-name-label" for="profile-name">Saved profile name</label>
+                <input type="text" id="profile-name" maxlength="64" placeholder="My device profile">
                 <div class="scroll-container">
                     <div class="form-group">
                         <label for="device-name">
@@ -586,6 +618,8 @@
     <script src="lang/en.js"></script>
     <script src="i18n.js"></script>
     <script src="command-bridge.js"></script>
+    <script src="profile-store.js"></script>
+    <script src="profile-ui.js"></script>
     <script src="logcat-buffer.js"></script>
     <script src="log-ui.js"></script>
     <script src="info-tabs.js"></script>

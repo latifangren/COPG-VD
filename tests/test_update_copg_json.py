@@ -52,15 +52,22 @@ class UpdateCopgJsonTests(unittest.TestCase):
         self.assertEqual(props["ro.product.system_dlkm.device"], "comet")
 
     def test_read_json_and_render_json_preserve_duplicate_header_keys(self):
-        source = '{"Instructions":"first","Instructions":"second","COPG-VD":{"DEVICE":"comet","CUSTOM":"keep"}}'
+        source = '{"Instructions":"first","Instructions":"second","COPG-VD-ActiveProfile":"custom:phone","COPG-VD-Profiles":{"custom:phone":{"name":"Phone","kind":"custom","values":{"DEVICE":"comet"}}},"COPG-VD-Settings":{"lang":"id"},"COPG-VD":{"DEVICE":"comet","CUSTOM":"keep"}}'
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "config.json"
             path.write_text(source, encoding="utf-8")
             header, body = UPDATER.read_json(path)
+        body, _ = UPDATER.apply_props(body, {}, {})
         rendered = UPDATER.render_json(header, body)
         pairs = json.loads(rendered, object_pairs_hook=lambda values: values)
         self.assertEqual([value for key, value in pairs if key == "Instructions"], ["first", "second"])
         self.assertIn(("CUSTOM", "keep"), next(value for key, value in pairs if key == "COPG-VD"))
+        self.assertIn(("COPG-VD-ActiveProfile", "custom:phone"), pairs)
+        self.assertIn(("COPG-VD-Settings", [("lang", "id")]), pairs)
+        profiles = next(value for key, value in pairs if key == "COPG-VD-Profiles")
+        saved = next(value for key, value in profiles if key == "custom:phone")
+        self.assertEqual(dict(saved)["name"], "Phone")
+        self.assertEqual(dict(dict(saved)["values"])["DEVICE"], "comet")
 
     def test_apply_props_refreshes_mapped_fields_and_keeps_custom_values(self):
         body = [("BRAND", "OldBrand"), ("CUSTOM", "keep"), ("BOARD", "custom-board")]

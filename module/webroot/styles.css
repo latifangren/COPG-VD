@@ -235,6 +235,119 @@ body.dark-theme::before {
     margin: 16px 0;
 }
 
+.profile-manager {
+    margin: 12px 8px 16px;
+    padding: 16px;
+    background: var(--card-bg);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+}
+
+.dark-theme .profile-manager {
+    background: var(--dark-card);
+    color: var(--dark-text);
+    border-color: var(--dark-border);
+}
+
+.profile-manager-heading {
+    display: flex;
+    justify-content: space-between;
+    align-items: start;
+    gap: 12px;
+    margin-bottom: 14px;
+}
+
+.profile-manager-heading h2 {
+    font-size: 18px;
+    margin: 0;
+}
+
+.profile-manager-heading p {
+    margin-top: 3px;
+    color: var(--text-secondary);
+    font-size: 13px;
+}
+
+.dark-theme .profile-manager-heading p {
+    color: var(--dark-text-secondary);
+}
+
+.profile-count {
+    color: var(--text-secondary);
+    font-size: 12px;
+    white-space: nowrap;
+}
+
+.profile-manager-grid {
+    display: grid;
+    grid-template-columns: minmax(180px, 1fr) auto auto;
+    gap: 10px;
+    align-items: end;
+    margin-bottom: 12px;
+}
+
+.profile-manager-grid label {
+    display: grid;
+    gap: 5px;
+    font-size: 12px;
+    color: var(--text-secondary);
+}
+
+.dark-theme .profile-manager-grid label {
+    color: var(--dark-text-secondary);
+}
+
+.profile-manager-grid select,
+.profile-manager-grid input {
+    width: 100%;
+    min-width: 0;
+    padding: 10px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--background);
+    color: var(--text);
+}
+
+.dark-theme .profile-manager-grid select,
+.dark-theme .profile-manager-grid input {
+    border-color: var(--dark-border);
+    background: var(--dark-bg);
+    color: var(--dark-text);
+}
+
+.profile-create-row {
+    grid-template-columns: minmax(180px, 1fr) minmax(140px, 0.8fr) auto;
+    padding-top: 12px;
+    border-top: 1px solid var(--border);
+}
+
+.dark-theme .profile-create-row {
+    border-color: var(--dark-border);
+}
+
+.profile-manager-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.profile-manager button:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+@media (max-width: 640px) {
+    .profile-manager-grid,
+    .profile-create-row {
+        grid-template-columns: 1fr;
+    }
+
+    .profile-manager-grid button {
+        width: 100%;
+    }
+}
+
 #device-modal .scroll-container {
     min-height: 350px;
     max-height: 350px;
