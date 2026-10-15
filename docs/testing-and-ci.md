@@ -24,7 +24,7 @@ python -m unittest discover -s tests -p 'test_*.py' -v
 
 The JavaScript tests cover concurrent root-command callbacks, bridge failures and cleanup, and incremental log snapshots without clearing the shared Android log buffer. Python tests cover selected updater parsing, profile preservation, and atomic writes using local temporary files; they do not fetch factory images.
 
-`.github/workflows/tests.yml` runs these host-side checks for pushes and pull requests. Device-side shell behavior, JNI field application, SELinux labels, root-manager API behavior, and boot timing are not established by these host tests.
+`.github/workflows/tests.yml` runs these host-side checks for pushes and pull requests. `.github/workflows/build-artifact.yml` builds the three Zygisk ABIs and uploads an installable module ZIP on pushes, pull requests, and manual dispatches; its token is read-only and it does not publish a release. Device-side shell behavior, JNI field application, SELinux labels, root-manager API behavior, and boot timing are not established by these host tests.
 
 ## Android build and integration
 

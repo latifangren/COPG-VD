@@ -1,0 +1,80 @@
+name: Build module artifact
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: module-artifact-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4.2.2
+
+      - name: Install build tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential cmake unzip zip
+
+      - name: Install Android NDK
+        env:
+          NDK_ARCHIVE: ${{ runner.temp }}/android-ndk-r29.zip
+          NDK_ROOT: ${{ runner.temp }}/android-ndk
+        run: |
+          mkdir -p "$NDK_ROOT"
+          wget https://dl.google.com/android/repository/android-ndk-r29-linux.zip -O "$NDK_ARCHIVE"
+          unzip -q "$NDK_ARCHIVE" -d "$NDK_ROOT"
+          NDK_PATH=$(find "$NDK_ROOT" -mindepth 1 -maxdepth 1 -type d -name 'android-ndk-r29*' -print -quit)
+          [ -n "$NDK_PATH" ] || { echo 'Android NDK r29 was not extracted' >&2; exit 1; }
+          echo "NDK_PATH=$NDK_PATH" >> "$GITHUB_ENV"
+
+      - name: Build Zygisk libraries
+        env:
+          ABIS: arm64-v8a armeabi-v7a x86_64
+        run: |
+          for abi in $ABIS; do
+            cmake -S zygisk -B "zygisk/build/$abi" \
+              -DCMAKE_TOOLCHAIN_FILE="$NDK_PATH/build/cmake/android.toolchain.cmake" \
+              -DANDROID_ABI="$abi" \
+              -DANDROID_PLATFORM=android-28 \
+              -DCMAKE_BUILD_TYPE=Release \
+              -DCMAKE_MAKE_PROGRAM=/usr/bin/make
+            cmake --build "zygisk/build/$abi" --parallel "$(nproc)"
+            test -s "zygisk/build/$abi/libspoof.so"
+          done
+
+      - name: Package installable module
+        id: package
+        run: |
+          version=$(sed -n 's/^version=//p' module/module.prop | head -n 1)
+          [ -n "$version" ] || { echo 'Module version is missing' >&2; exit 1; }
+          zip_name="COPG-VD-${version}-ci-${GITHUB_RUN_NUMBER}.zip"
+          mkdir -p module/zygisk
+          for abi in arm64-v8a armeabi-v7a x86_64; do
+            cp "zygisk/build/$abi/libspoof.so" "module/zygisk/$abi.so"
+          done
+          chmod 755 module/zygisk/*.so
+          cp README.md LICENSE module/webroot/
+          chmod 755 module/customize.sh module/service.sh module/fingerprint-update.sh module/META-INF/com/google/android/update-binary
+          (cd module && zip -qr9 "../$zip_name" . -x '.git*')
+          unzip -t "$zip_name"
+          for abi in arm64-v8a armeabi-v7a x86_64; do
+            unzip -Z1 "$zip_name" | grep -Fx "zygisk/$abi.so"
+          done
+          echo "zip_name=$zip_name" >> "$GITHUB_OUTPUT"
+
+      - name: Upload module artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: COPG-VD-${{ github.run_number }}
+          path: ${{ steps.package.outputs.zip_name }}
+          if-no-files-found: error
+          retention-days: 14
